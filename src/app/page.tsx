@@ -97,6 +97,10 @@ const [coins, setCoins] = useState([
   { id: 3, x: "left-1/3 bottom-6", icon: "💸", value: 5, anim: "animate-bounce" },
   { id: 4, x: "right-1/4 bottom-10", icon: "💰", value: 10, anim: "animate-pulse" },
 ])
+const [loading, setLoading] = useState(false)
+const [nombre, setNombre] = useState("")
+const [apellidos, setApellidos] = useState("")
+
 
 
   useEffect(() => {
@@ -634,6 +638,19 @@ const [coins, setCoins] = useState([
           value={email}
           onChange={(e) => setEmail(e.target.value)}
         />
+        <input
+         className="border p-2 mb-2 w-full"
+         placeholder="Nombre"
+         value={nombre}
+         onChange={(e) => setNombre(e.target.value)}
+         />
+         <input
+  className="border p-2 mb-2 w-full"
+  placeholder="Apellidos"
+  value={apellidos}
+  onChange={(e) => setApellidos(e.target.value)}
+/>
+
 
         <input
           className="border p-2 mb-2 w-full"
@@ -647,6 +664,9 @@ const [coins, setCoins] = useState([
           <button
             className="bg-black text-white px-3 py-2 rounded transition-all hover:scale-105 active:scale-95"
             onClick={async () => {
+              if (loading) return
+              setLoading(true)
+
               if (!email || !password) {
                 alert("Faltan datos")
                 return
@@ -664,19 +684,33 @@ const [coins, setCoins] = useState([
           </button>
 
           <button
-            className="bg-green-500 text-white px-4 py-2"
+            className="bg-black text-white px-3 py-2 rounded transition-all hover:scale-105 active:scale-95"
             onClick={async () => {
-              if (!email || !password) {
+              if (!email || !password || !nombre || !apellidos) {
                 alert("Faltan datos")
                 return
               }
+              const { data, error } = await
+                    supabase.auth.signUp({
+                      email,
+                      password,
+                      options: {
+                          data: {
+                            nombre,
+                            apellidos,
+                          },
+                        },
+                    })
 
-              const { error } = await supabase.auth.signUp({
-                email,
-                password,
-              })
-
-              if (error) alert(error.message)
+                    console.log("SIGNUP DATA:", data)
+                    console.log("SIGNUP ERROR:", error)
+                    if (error) {
+                        alert(error.message)
+                        setLoading(false)
+                          return
+                        }
+                        alert("Registro enviado correctamente")
+                        setLoading(false)
             }}
           >
             Registro
