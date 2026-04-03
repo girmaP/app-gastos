@@ -11,11 +11,14 @@ type User = {
   auth_user_id?: string | null
   owner_id?: string | null
   is_pending?: boolean
+  created_at?: string
 }
 
 type Group = {
   id: string
   name: string | null
+  owner_id?: string | null
+  created_at?: string
 }
 
 type GroupMember = {
@@ -23,6 +26,7 @@ type GroupMember = {
   user_id: string
   group_id: string
   owner_id?: string | null
+  created_at?: string
 }
 
 type Expense = {
@@ -56,6 +60,23 @@ type BalanceItem = {
   groupId: string
 }
 
+type FriendInvitation = {
+  id: string
+  email: string
+  invited_by: string
+  status: string
+  token?: string
+  created_at?: string
+}
+
+type Friendship = {
+  id: string
+  user_id: string
+  friend_id: string
+  status?: string
+  created_at?: string
+}
+
 type FriendBalanceItem = {
   friendId: string
   amount: number
@@ -75,6 +96,9 @@ export default function Home() {
   const [groups, setGroups] = useState<Group[]>([])
   const [groupMembers, setGroupMembers] = useState<GroupMember[]>([])
   const [groupsWithMembers, setGroupsWithMembers] = useState<GroupWithMembers[]>([])
+  const [friendships, setFriendships] = useState<Friendship[]>([])
+  const [receivedInvitations, setReceivedInvitations] = useState<FriendInvitation[]>([])
+  const [sentInvitations, setSentInvitations] = useState<FriendInvitation[]>([])
 
   const [selectedUserId, setSelectedUserId] = useState("")
   const [selectedGroupId, setSelectedGroupId] = useState("")
@@ -127,6 +151,10 @@ export default function Home() {
     }
   }, [])
 
+  const currentAppUser = useMemo(() => {
+    return users.find((u) => u.auth_user_id === user?.id) || null
+  }, [users, user])
+
   useEffect(() => {
     if (!user) return
 
@@ -138,12 +166,9 @@ export default function Home() {
     run()
   }, [user])
 
-  const currentAppUser = useMemo(() => {
-    return users.find((u) => u.auth_user_id === user?.id) || null
-  }, [users, user])
-
-  const isAdmin = useMemo(() => {
-    return currentAppUser?.is_admin || false
+  useEffect(() => {
+    if (!currentAppUser) return
+    getFriendships()
   }, [currentAppUser])
 
   const ensureCurrentAppUserProfile = async () => {
@@ -179,59 +204,18 @@ export default function Home() {
       getGroupMembers(),
       getExpenses(),
       getExpenseSplits(),
+      getReceivedInvitations(),
+      getSentInvitations(),
     ])
   }
 
-  const normalExpenses = useMemo(() => {
-    return expenses.filter((expense) => expense.title !== "Saldar deuda")
-  }, [expenses])
-
-  const settledExpenses = useMemo(() => {
-    return expenses.filter((expense) => expense.title === "Saldar deuda")
-  }, [expenses])
+  const isAdmin = useMemo(() => {
+    return currentAppUser?.is_admin || false
+  }, [currentAppUser])
 
   const getUsers = async () => {
-    if (!user) return
-
-    const { data } = await supabase
-      .from("users")
-      .select("*")
-      .or(`owner_id.eq.${user.id},owner_id.is.null`)
-      .order("created_at", { ascending: false })
-
-    if (data) setUsers(data)
-  }
-
-  const addUser = async () => {
-    if (!name.trim() || !user) {
-  alert("Introduce un correo")
-  return
-}
-if (!name.includes("@")) {
-  alert("Introduce un correo válido")
-  return
-}
-const { data: existingUser } = await supabase
-  .from("users")
-  .select("id")
-  .eq("name", name)
-  .maybeSingle()
-
-if (existingUser) {
-  alert("Ese correo ya está invitado o añadido")
-  return
-}
-
-    await supabase.from("users").insert({
-  name,
-  owner_id: user.id,
-  is_pending: true,
-})
-
-
-    setName("")
-    await getUsers()
-    await buildGroupsWithMembers()
+    const { data } = await supabase.from("users").select("*").order("created_at", { ascending: false })
+    if (data) setUsers(data as User[])
   }
 
   const getGroups = async () => {
@@ -243,20 +227,7 @@ if (existingUser) {
       .or(`owner_id.eq.${user.id},owner_id.is.null`)
       .order("created_at", { ascending: false })
 
-    if (data) setGroups(data)
-  }
-
-  const addGroup = async () => {
-    if (!groupName.trim() || !user) return
-
-    await supabase.from("groups").insert({
-      name: groupName,
-      owner_id: user.id,
-    })
-
-    setGroupName("")
-    await getGroups()
-    await buildGroupsWithMembers()
+    if (data) setGroups(data as Group[])
   }
 
   const getGroupMembers = async () => {
@@ -268,34 +239,7 @@ if (existingUser) {
       .or(`owner_id.eq.${user.id},owner_id.is.null`)
       .order("created_at", { ascending: false })
 
-    if (data) setGroupMembers(data)
-  }
-
-  const addPersonToGroup = async () => {
-    if (!selectedUserId || !selectedGroupId || !user) return
-
-    const alreadyExists = groupMembers.some(
-      (item) =>
-        item.user_id === selectedUserId && item.group_id === selectedGroupId
-    )
-
-    if (alreadyExists) {
-      alert("Esa persona ya está en el grupo")
-      return
-    }
-
-    await supabase.from("group_members").insert([
-      {
-        user_id: selectedUserId,
-        group_id: selectedGroupId,
-        owner_id: user.id,
-      },
-    ])
-
-    setSelectedUserId("")
-    setSelectedGroupId("")
-    await getGroupMembers()
-    await buildGroupsWithMembers()
+    if (data) setGroupMembers(data as GroupMember[])
   }
 
   const getExpenses = async () => {
@@ -307,7 +251,7 @@ if (existingUser) {
       .or(`owner_id.eq.${user.id},owner_id.is.null`)
       .order("created_at", { ascending: false })
 
-    if (data) setExpenses(data)
+    if (data) setExpenses(data as Expense[])
   }
 
   const getExpenseSplits = async () => {
@@ -318,7 +262,211 @@ if (existingUser) {
       .select("*")
       .or(`owner_id.eq.${user.id},owner_id.is.null`)
 
-    if (data) setExpenseSplits(data)
+    if (data) setExpenseSplits(data as ExpenseSplit[])
+  }
+
+  const getReceivedInvitations = async () => {
+    if (!user?.email) return
+
+    const { data, error } = await supabase
+      .from("friend_invitations")
+      .select("*")
+      .eq("email", user.email)
+      .in("status", ["pending", "accepted"])
+      .order("created_at", { ascending: false })
+
+    if (!error && data) setReceivedInvitations(data as FriendInvitation[])
+  }
+
+  const getSentInvitations = async () => {
+    if (!user) return
+
+    const { data, error } = await supabase
+      .from("friend_invitations")
+      .select("*")
+      .eq("invited_by", user.id)
+      .order("created_at", { ascending: false })
+
+    if (!error && data) setSentInvitations(data as FriendInvitation[])
+  }
+
+  const getFriendships = async () => {
+    if (!currentAppUser) return
+
+    const { data, error } = await supabase
+      .from("friendships")
+      .select("*")
+      .eq("user_id", currentAppUser.id)
+
+    if (!error && data) setFriendships(data as Friendship[])
+  }
+
+  const addUser = async () => {
+    if (!name.trim() || !user) {
+      alert("Introduce un correo")
+      return
+    }
+
+    const normalizedEmail = name.trim().toLowerCase()
+
+    if (!normalizedEmail.includes("@")) {
+      alert("Introduce un correo válido")
+      return
+    }
+
+    if (normalizedEmail === (user.email || "").toLowerCase()) {
+      alert("No puedes invitarte a ti mismo")
+      return
+    }
+
+    const { data: existingInvitation } = await supabase
+      .from("friend_invitations")
+      .select("id")
+      .eq("email", normalizedEmail)
+      .eq("invited_by", user.id)
+      .eq("status", "pending")
+      .maybeSingle()
+
+    if (existingInvitation) {
+      alert("Ese correo ya tiene una invitación pendiente")
+      return
+    }
+
+    const invitedAppUser = users.find(
+      (u) => u.auth_user_id && u.auth_user_id !== currentAppUser?.auth_user_id && normalizedEmail === (u.auth_user_id ? normalizedEmail : normalizedEmail)
+    )
+
+    const { error } = await supabase.from("friend_invitations").insert({
+      email: normalizedEmail,
+      invited_by: user.id,
+      status: "pending",
+    })
+    await fetch("/api/send-invite", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    email: name,
+  }),
+})
+
+
+    if (error) {
+      alert("Error al enviar invitación")
+      console.log(error)
+      return
+    }
+
+    alert("Invitación enviada. Cuando la otra persona entre con ese correo podrá aceptarla.")
+    setName("")
+    await getSentInvitations()
+  }
+
+  const acceptInvitation = async (invitation: FriendInvitation) => {
+    if (!user || !currentAppUser) return
+
+    const { data: senderAppUser, error: senderError } = await supabase
+      .from("users")
+      .select("*")
+      .eq("auth_user_id", invitation.invited_by)
+      .single()
+
+    if (senderError || !senderAppUser) {
+      alert("No se encontró al usuario que envió la invitación")
+      return
+    }
+
+    const alreadyFriend = friendships.some((f) => f.friend_id === senderAppUser.id)
+    if (!alreadyFriend) {
+      const { error: friendshipError } = await supabase.from("friendships").insert([
+        {
+          user_id: currentAppUser.id,
+          friend_id: senderAppUser.id,
+          status: "accepted",
+        },
+        {
+          user_id: senderAppUser.id,
+          friend_id: currentAppUser.id,
+          status: "accepted",
+        },
+      ])
+
+      if (friendshipError) {
+        alert("Error creando la amistad")
+        console.log(friendshipError)
+        return
+      }
+    }
+
+    await supabase
+      .from("friend_invitations")
+      .update({ status: "accepted" })
+      .eq("id", invitation.id)
+
+    alert("Amigo añadido correctamente")
+    await getReceivedInvitations()
+    await getFriendships()
+  }
+
+  const addGroup = async () => {
+    if (!groupName.trim() || !user || !currentAppUser) return
+
+    const { data: createdGroup, error } = await supabase
+      .from("groups")
+      .insert({
+        name: groupName.trim(),
+        owner_id: user.id,
+      })
+      .select()
+      .single()
+
+    if (error || !createdGroup) {
+      alert("Error creando grupo")
+      return
+    }
+
+    await supabase.from("group_members").insert({
+      user_id: currentAppUser.id,
+      group_id: createdGroup.id,
+      owner_id: user.id,
+    })
+
+    setGroupName("")
+    await getGroups()
+    await getGroupMembers()
+    await buildGroupsWithMembers()
+  }
+
+  const addPersonToGroup = async () => {
+    if (!selectedUserId || !selectedGroupId || !user) return
+
+    const alreadyExists = groupMembers.some(
+      (item) => item.user_id === selectedUserId && item.group_id === selectedGroupId
+    )
+
+    if (alreadyExists) {
+      alert("Esa persona ya está en el grupo")
+      return
+    }
+
+    const { error } = await supabase.from("group_members").insert([
+      {
+        user_id: selectedUserId,
+        group_id: selectedGroupId,
+        owner_id: user.id,
+      },
+    ])
+
+    if (error) {
+      alert("Error añadiendo amigo al grupo")
+      return
+    }
+
+    setSelectedUserId("")
+    setSelectedGroupId("")
+    await getGroupMembers()
+    await buildGroupsWithMembers()
   }
 
   const getMembersOfSelectedExpenseGroup = () => {
@@ -332,6 +480,11 @@ if (existingUser) {
       .filter(Boolean) as User[]
   }, [expenseGroupId, groupMembers, users])
 
+  const friendList = useMemo(() => {
+    const friendIds = new Set(friendships.map((f) => f.friend_id))
+    return users.filter((u) => friendIds.has(u.id))
+  }, [users, friendships])
+
   const friendParticipants = useMemo(() => {
     if (!currentAppUser || !selectedFriendId) return []
     const friend = users.find((u) => u.id === selectedFriendId)
@@ -342,17 +495,9 @@ if (existingUser) {
     expenseMode === "group" ? membersOfSelectedExpenseGroup : friendParticipants
 
   const getUserName = (userId: string) => {
-  const userItem = users.find((u) => u.id === userId)
-
-  if (!userItem) return "Usuario"
-
-  if (userItem.is_pending) {
-    return `${userItem.name} (pendiente)`
+    const userItem = users.find((u) => u.id === userId)
+    return userItem?.name || "Usuario"
   }
-
-  return userItem.name || "Usuario"
-}
-
 
   const getGroupName = (groupId: string | null) => {
     if (!groupId) return "Gasto individual"
@@ -604,10 +749,7 @@ if (existingUser) {
       .or(`owner_id.eq.${user.id},owner_id.is.null`)
       .order("created_at", { ascending: false })
 
-    const { data: usersData } = await supabase
-      .from("users")
-      .select("*")
-      .or(`owner_id.eq.${user.id},owner_id.is.null`)
+    const { data: usersData } = await supabase.from("users").select("*")
 
     const { data: membersData } = await supabase
       .from("group_members")
@@ -616,10 +758,10 @@ if (existingUser) {
 
     if (!groupsData || !usersData || !membersData) return
 
-    const result: GroupWithMembers[] = groupsData.map((group) => {
-      const membersOfGroup = membersData
+    const result: GroupWithMembers[] = (groupsData as Group[]).map((group) => {
+      const membersOfGroup = (membersData as GroupMember[])
         .filter((item) => item.group_id === group.id)
-        .map((item) => usersData.find((userItem) => userItem.id === item.user_id))
+        .map((item) => (usersData as User[]).find((userItem) => userItem.id === item.user_id))
         .filter(Boolean) as User[]
 
       return {
@@ -736,10 +878,13 @@ if (existingUser) {
       .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))
   }, [currentAppUser, expenses, expenseSplits, groupMembers])
 
-  const friendList = useMemo(() => {
-    const ids = new Set(friendBalances.map((item) => item.friendId))
-    return users.filter((u) => ids.has(u.id))
-  }, [users, friendBalances])
+  const normalExpenses = useMemo(() => {
+    return expenses.filter((expense) => expense.title !== "Saldar deuda")
+  }, [expenses])
+
+  const settledExpenses = useMemo(() => {
+    return expenses.filter((expense) => expense.title === "Saldar deuda")
+  }, [expenses])
 
   const moroso = useMemo(() => {
     const debtMap = new Map<string, number>()
@@ -799,9 +944,14 @@ if (existingUser) {
 
   if (!user) {
     return (
-      <main className="min-h-screen flex items-center justify-center bg-gray-100 px-4">
-        <div className="bg-white p-8 rounded-2xl shadow-lg w-full max-w-md">
-          <h1 className="text-2xl font-bold mb-4 text-center">
+      <main className="min-h-screen flex items-center justify-center bg-[radial-gradient(circle_at_top,_#1f2937,_#0f172a_55%,_#020617)] px-4 overflow-hidden">
+        <div className="absolute inset-0 opacity-40">
+          <div className="absolute left-[-80px] top-[-40px] h-72 w-72 rounded-full bg-emerald-400/20 blur-3xl animate-pulse" />
+          <div className="absolute right-[-60px] bottom-[-30px] h-72 w-72 rounded-full bg-fuchsia-500/20 blur-3xl animate-pulse" />
+        </div>
+
+        <div className="relative z-10 w-full max-w-md rounded-3xl border border-white/10 bg-white/95 p-8 shadow-2xl backdrop-blur">
+          <h1 className="text-3xl font-black mb-2 text-center text-black">
             {authMode === "login" ? "Iniciar sesión" : "Crear cuenta"}
           </h1>
 
@@ -868,7 +1018,6 @@ if (existingUser) {
                 return
               }
 
-              let data: any
               let error: any
 
               if (authMode === "login") {
@@ -876,7 +1025,6 @@ if (existingUser) {
                   email,
                   password,
                 })
-                data = res.data
                 error = res.error
               } else {
                 const res = await supabase.auth.signUp({
@@ -889,7 +1037,6 @@ if (existingUser) {
                     },
                   },
                 })
-                data = res.data
                 error = res.error
               }
 
@@ -925,280 +1072,361 @@ if (existingUser) {
   }
 
   return (
-    <main className="min-h-screen bg-white p-6">
-      <div className="flex justify-between items-center mb-4 flex-wrap gap-3">
-        <div className="flex gap-2 flex-wrap">
-          <button
-            onClick={() => setScreen("home")}
-            className={`px-4 py-2 rounded-xl transition-all ${
-              screen === "home" ? "bg-black text-white" : "bg-gray-200"
-            }`}
-          >
-            Inicio
-          </button>
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_#f8fafc,_#eef2ff_35%,_#ffffff_70%)] p-6">
+      <div className="mx-auto max-w-6xl">
+        <div className="mb-5 flex justify-between items-center flex-wrap gap-3">
+          <div className="flex gap-2 flex-wrap">
+            {(["home", "amigos", "gastos", "balances", "historial", "moroso"] as Screen[]).map((item) => (
+              <button
+                key={item}
+                onClick={() => setScreen(item)}
+                className={`px-4 py-2 rounded-xl transition-all capitalize ${
+                  screen === item ? "bg-black text-white shadow-lg" : "bg-white border border-gray-200 hover:-translate-y-0.5"
+                }`}
+              >
+                {item === "home" ? "Inicio" : item}
+              </button>
+            ))}
+          </div>
 
           <button
-            onClick={() => setScreen("amigos")}
-            className={`px-4 py-2 rounded-xl transition-all ${
-              screen === "amigos" ? "bg-black text-white" : "bg-gray-200"
-            }`}
+            onClick={async () => {
+              await supabase.auth.signOut()
+              setUser(null)
+            }}
+            className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg shadow"
           >
-            Amigos
-          </button>
-
-          <button
-            onClick={() => setScreen("gastos")}
-            className={`px-4 py-2 rounded-xl transition-all ${
-              screen === "gastos" ? "bg-black text-white" : "bg-gray-200"
-            }`}
-          >
-            Gastos
-          </button>
-
-          <button
-            onClick={() => setScreen("balances")}
-            className={`px-4 py-2 rounded-xl transition-all ${
-              screen === "balances" ? "bg-black text-white" : "bg-gray-200"
-            }`}
-          >
-            Balances
-          </button>
-
-          <button
-            onClick={() => setScreen("historial")}
-            className={`px-4 py-2 rounded-xl transition-all ${
-              screen === "historial" ? "bg-black text-white" : "bg-gray-200"
-            }`}
-          >
-            Historial
-          </button>
-
-          <button
-            onClick={() => setScreen("moroso")}
-            className={`px-4 py-2 rounded-xl transition-all ${
-              screen === "moroso" ? "bg-black text-white" : "bg-gray-200"
-            }`}
-          >
-            Moroso
+            Cerrar sesión
           </button>
         </div>
 
-        <button
-          onClick={async () => {
-            await supabase.auth.signOut()
-            setUser(null)
-          }}
-          className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg shadow"
-        >
-          Cerrar sesión
-        </button>
-      </div>
+        {screen === "home" && (
+          <div className="mx-auto flex max-w-6xl animate-[fadeIn_.35s_ease] flex-col gap-6">
+            <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-zinc-900 via-slate-800 to-black p-8 text-white shadow-2xl">
+              <div className="absolute -top-6 -left-6 h-24 w-24 rounded-full bg-white/10 blur-2xl" />
+              <div className="absolute top-10 right-6 h-20 w-20 rounded-full bg-green-400/20 blur-2xl" />
+              <div className="absolute bottom-0 left-1/3 h-24 w-24 rounded-full bg-red-400/20 blur-2xl" />
 
-      {screen === "home" && (
-        <div className="mx-auto flex max-w-3xl animate-[fadeIn_.35s_ease] flex-col gap-6">
-          <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-zinc-900 via-gray-800 to-black p-8 text-white shadow-2xl">
-            <div className="absolute -top-6 -left-6 h-24 w-24 rounded-full bg-white/10 blur-2xl" />
-            <div className="absolute top-10 right-6 h-20 w-20 rounded-full bg-green-400/20 blur-2xl" />
-            <div className="absolute bottom-0 left-1/3 h-24 w-24 rounded-full bg-red-400/20 blur-2xl" />
-
-            <div className="relative z-10 flex flex-col gap-4">
-              <div className="inline-flex w-fit items-center rounded-full border border-white/20 bg-white/10 px-3 py-1 text-sm backdrop-blur">
-                Bienvenido al rincón de las cuentas pendientes
-              </div>
-
-              <h1 className="text-4xl font-black leading-tight sm:text-5xl">
-                Si estás aquí,
-                <br />
-                <span className="text-green-300">alguien te debe pasta.</span>
-              </h1>
-
-              <p className="max-w-xl text-sm text-gray-200 sm:text-base">
-                O peor: tú debes dinero y te estás haciendo el loco. Se acabó lo de
-                “luego te hago Bizum”, “págalo tú y después vemos” y las cuentas con
-                los cabrones de tus amigos.
-              </p>
-
-              <div className="flex flex-wrap gap-3 pt-2">
-                <div className="rounded-2xl bg-white/10 px-4 py-2 text-sm backdrop-blur">
-                  Grupos reales
+              <div className="relative z-10 flex flex-col gap-4">
+                <div className="inline-flex w-fit items-center rounded-full border border-white/20 bg-white/10 px-3 py-1 text-sm backdrop-blur">
+                  Bienvenido al rincón de las cuentas pendientes
                 </div>
-                <div className="rounded-2xl bg-white/10 px-4 py-2 text-sm backdrop-blur">
-                  Amigos y balances
-                </div>
-                <div className="rounded-2xl bg-white/10 px-4 py-2 text-sm backdrop-blur">
-                  Historial y morosos
-                </div>
+
+                <h1 className="text-4xl font-black leading-tight sm:text-5xl">
+                  Si estás aquí,
+                  <br />
+                  <span className="text-green-300">alguien te debe pasta.</span>
+                </h1>
+
+                <p className="max-w-2xl text-sm text-gray-200 sm:text-base">
+                  Grupos, amigos, gastos directos, balances globales y la lista negra del mes.
+                </p>
               </div>
             </div>
-          </div>
 
-          <div className="grid gap-6 md:grid-cols-2">
-            <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
-              <h2 className="text-xl font-semibold text-black">Crear grupo</h2>
+            <div className="grid gap-6 lg:grid-cols-2">
+              <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
+                <h2 className="text-xl font-semibold text-black">Crear grupo</h2>
+                <input
+                  placeholder="Nombre del grupo"
+                  value={groupName}
+                  onChange={(e) => setGroupName(e.target.value)}
+                  className="mt-3 w-full rounded-lg border border-gray-300 p-3 text-black outline-none transition focus:border-black focus:ring-1 focus:ring-black"
+                />
+                <button
+                  onClick={addGroup}
+                  className="mt-3 rounded-xl bg-black px-4 py-3 text-white transition-all hover:scale-105 active:scale-95"
+                >
+                  + Crear grupo
+                </button>
+              </div>
 
-              <input
-                placeholder="Nombre del grupo"
-                value={groupName}
-                onChange={(e) => setGroupName(e.target.value)}
-                className="mt-3 w-full rounded-lg border border-gray-300 p-3 text-black outline-none transition focus:border-black focus:ring-1 focus:ring-black"
-              />
-
-              <button
-                onClick={addGroup}
-                className="mt-3 rounded-xl bg-black px-4 py-3 text-white transition-all hover:scale-105 active:scale-95"
-              >
-                + Crear grupo
-              </button>
+              <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
+                <h2 className="text-xl font-semibold text-black">Invitar a un amigo</h2>
+                <p className="mt-1 text-sm text-gray-500">
+                  Escribe su correo y podrá aceptar la invitación cuando entre con esa cuenta.
+                </p>
+                <input
+                  placeholder="Correo de tu amigo"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="mt-3 w-full rounded-lg border border-gray-300 p-3 text-black outline-none transition focus:border-black focus:ring-1 focus:ring-black"
+                />
+                <button
+                  onClick={addUser}
+                  className="mt-3 rounded-xl bg-gray-900 px-4 py-3 text-white transition-all hover:scale-105 active:scale-95"
+                >
+                  + Enviar invitación
+                </button>
+              </div>
             </div>
 
-            <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
-              <h2 className="text-xl font-semibold text-black">Initar a un amigo</h2>
-              <p className="mt-1 text-sm text-gray-500">
-                Escribe su correo electrónico, pasará a ser tu amigo una vez que acepte la invitación.
-              </p>
+            <div className="grid gap-6 lg:grid-cols-2">
+              <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
+                <h2 className="text-xl font-semibold text-black">Añadir amigo a grupo</h2>
 
-              <input
-                placeholder="Correo de tu brosky"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="mt-3 w-full rounded-lg border border-gray-300 p-3 text-black outline-none transition focus:border-black focus:ring-1 focus:ring-black"
-              />
+                <select
+                  value={selectedUserId}
+                  onChange={(e) => setSelectedUserId(e.target.value)}
+                  className="mt-3 w-full rounded-lg border border-gray-300 p-3 text-black outline-none transition focus:border-black focus:ring-1 focus:ring-black"
+                >
+                  <option value="">Amigo</option>
+                  {friendList.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name}
+                    </option>
+                  ))}
+                </select>
 
-              <button
-                onClick={addUser}
-                className="mt-3 rounded-xl bg-gray-900 px-4 py-3 text-white transition-all hover:scale-105 active:scale-95"
-              >
-                + Añadir amigo
-              </button>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
-            <h2 className="text-xl font-semibold text-black">Añadir amigo a grupo</h2>
-
-            <select
-              value={selectedUserId}
-              onChange={(e) => setSelectedUserId(e.target.value)}
-              className="mt-3 w-full rounded-lg border border-gray-300 p-3 text-black outline-none transition focus:border-black focus:ring-1 focus:ring-black"
-            >
-              <option value="">Amigo</option>
-              {users
-                .filter((u) => u.id !== currentAppUser?.id)
-                .map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name}
-                  </option>
-                ))}
-            </select>
-
-            <select
-              value={selectedGroupId}
-              onChange={(e) => setSelectedGroupId(e.target.value)}
-              className="mt-3 w-full rounded-lg border border-gray-300 p-3 text-black outline-none transition focus:border-black focus:ring-1 focus:ring-black"
-            >
-              <option value="">Grupo</option>
-              {groups.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.name}
-                </option>
-              ))}
-            </select>
-
-            <button
-              onClick={addPersonToGroup}
-              className="mt-3 rounded-xl bg-black px-4 py-3 text-white transition-all hover:scale-105 active:scale-95"
-            >
-              Añadir al grupo
-            </button>
-          </div>
-          <div className="mb-4">
-  <h3 className="font-semibold text-black mb-2">Amigos</h3>
-
-  {users.length === 0 ? (
-    <p className="text-gray-500 text-sm">No tienes amigos todavía</p>
-  ) : (
-    <div className="flex flex-col gap-2">
-      {users.map((u) => (
-        <div key={u.id} className="p-3 bg-gray-100 rounded-lg flex justify-between items-center">
-          <span className="text-black">
-            {u.name} {u.is_pending && "(pendiente)"}
-          </span>
-        </div>
-      ))}
-    </div>
-  )}
-</div>
-
-
-          <div className="grid gap-6 md:grid-cols-2">
-            <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
-              <div className="mb-6">
-  <h3 className="font-semibold text-black mb-2">Amigos</h3>
-
-  {users.length === 0 ? (
-    <p className="text-gray-500 text-sm">No tienes amigos todavía</p>
-  ) : (
-    <div className="flex flex-col gap-2">
-      {users.map((u) => (
-        <div
-          key={u.id}
-          className="p-3 bg-gray-100 rounded-lg flex justify-between items-center"
-        >
-          <span className="text-black">
-            {u.name} {u.is_pending && "(pendiente)"}
-          </span>
-        </div>
-      ))}
-    </div>
-  )}
-</div>
-
-              <h2 className="text-xl font-semibold text-black">Tus grupos</h2>
-
-              <div className="mt-4 space-y-2">
-                {groups.length === 0 ? (
-                  <p className="text-gray-500">Todavía no hay grupos</p>
-                ) : (
-                  groups.map((g) => (
-                    <button
-                      key={g.id}
-                      onClick={() => openGroupFromHome(g.id)}
-                      className="w-full rounded-lg bg-gray-100 p-4 text-left transition hover:bg-gray-200"
-                    >
+                <select
+                  value={selectedGroupId}
+                  onChange={(e) => setSelectedGroupId(e.target.value)}
+                  className="mt-3 w-full rounded-lg border border-gray-300 p-3 text-black outline-none transition focus:border-black focus:ring-1 focus:ring-black"
+                >
+                  <option value="">Grupo</option>
+                  {groups.map((g) => (
+                    <option key={g.id} value={g.id}>
                       {g.name}
-                    </button>
-                  ))
-                )}
+                    </option>
+                  ))}
+                </select>
+
+                <button
+                  onClick={addPersonToGroup}
+                  className="mt-3 rounded-xl bg-black px-4 py-3 text-white transition-all hover:scale-105 active:scale-95"
+                >
+                  Añadir al grupo
+                </button>
+              </div>
+
+              <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
+                <h2 className="text-xl font-semibold text-black">Invitaciones</h2>
+
+                <div className="mt-4">
+                  <h3 className="font-semibold text-black mb-2">Recibidas</h3>
+                  {receivedInvitations.length === 0 ? (
+                    <p className="text-sm text-gray-500">No tienes invitaciones recibidas</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {receivedInvitations.map((inv) => (
+                        <div key={inv.id} className="rounded-lg bg-gray-100 p-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-black">
+                              {inv.email} ({inv.status})
+                            </span>
+
+                            {inv.status === "pending" && (
+                              <button
+                                onClick={() => acceptInvitation(inv)}
+                                className="rounded-lg bg-black px-3 py-2 text-white"
+                              >
+                                Aceptar
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-5">
+                  <h3 className="font-semibold text-black mb-2">Enviadas</h3>
+                  {sentInvitations.length === 0 ? (
+                    <p className="text-sm text-gray-500">No has enviado invitaciones todavía</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {sentInvitations.map((inv) => (
+                        <div key={inv.id} className="rounded-lg bg-gray-100 p-3 text-black">
+                          {inv.email} ({inv.status})
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
-            <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
-              <h2 className="text-xl font-semibold text-black">Tus amigos</h2>
+            <div className="grid gap-6 lg:grid-cols-2">
+              <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
+                <h2 className="text-xl font-semibold text-black">Tus grupos</h2>
+                <div className="mt-4 space-y-2">
+                  {groups.length === 0 ? (
+                    <p className="text-gray-500">Todavía no hay grupos</p>
+                  ) : (
+                    groups.map((g) => (
+                      <button
+                        key={g.id}
+                        onClick={() => openGroupFromHome(g.id)}
+                        className="w-full rounded-lg bg-gray-100 p-4 text-left transition hover:bg-gray-200"
+                      >
+                        {g.name}
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
 
-              <div className="mt-4 space-y-2">
+              <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
+                <h2 className="text-xl font-semibold text-black">Tus amigos</h2>
+                <div className="mt-4 space-y-2">
+                  {friendList.length === 0 ? (
+                    <p className="text-gray-500">
+                      Aquí aparecerán tus amigos cuando acepten invitaciones o compartáis gastos.
+                    </p>
+                  ) : (
+                    friendList.map((friend) => (
+                      <div
+                        key={friend.id}
+                        className="rounded-lg border border-gray-200 p-3"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="font-semibold text-black">{friend.name}</p>
+                            <p className="text-sm text-gray-500">
+                              {getFriendBalanceText(friend.id)}
+                            </p>
+                          </div>
+
+                          <button
+                            onClick={() => openFriendExpense(friend.id)}
+                            className="rounded-lg bg-black px-3 py-2 text-white transition-all hover:scale-105 active:scale-95"
+                          >
+                            Gasto directo
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
+              <div className="mb-3 flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-bold text-black">Caza al moroso</h3>
+                  <p className="text-sm text-gray-500">
+                    Dale al botón antes de que escape con tu dinero.
+                  </p>
+                </div>
+              </div>
+
+              <div className="relative h-64 overflow-hidden rounded-2xl bg-gradient-to-br from-green-50 via-yellow-50 to-red-50">
+                <div className="absolute inset-0 opacity-60">
+                  <div className="absolute left-10 top-6 h-24 w-24 rounded-full bg-green-300/30 blur-2xl animate-pulse" />
+                  <div className="absolute right-10 bottom-6 h-24 w-24 rounded-full bg-red-300/30 blur-2xl animate-pulse" />
+                </div>
+
+                <button
+                  onMouseEnter={(e) => {
+                    const parent = e.currentTarget.parentElement
+                    if (!parent) return
+
+                    const maxX = parent.clientWidth - e.currentTarget.clientWidth
+                    const maxY = parent.clientHeight - e.currentTarget.clientHeight
+
+                    const randomX = Math.floor(Math.random() * maxX)
+                    const randomY = Math.floor(Math.random() * maxY)
+
+                    e.currentTarget.style.left = `${randomX}px`
+                    e.currentTarget.style.top = `${randomY}px`
+                  }}
+                  onClick={() => alert("Lo pillaste. Hoy sí te pagan.")}
+                  className="absolute left-6 top-6 rounded-full bg-black px-4 py-2 text-white transition-all duration-300 animate-bounce hover:scale-110"
+                >
+                  💸 Moroso
+                </button>
+
+                {coins.map((coin) => (
+                  <div
+                    key={coin.id}
+                    onClick={() => {
+                      setMoney((m) => m + coin.value)
+
+                      setCoins((prev) => prev.filter((c) => c.id !== coin.id))
+
+                      setTimeout(() => {
+                        const positions = [
+                          "left-6 top-5",
+                          "right-10 top-10",
+                          "left-1/3 bottom-6",
+                          "right-1/4 bottom-10",
+                          "left-1/2 top-8",
+                          "right-6 bottom-6",
+                          "left-10 bottom-10",
+                        ]
+
+                        const anims = ["animate-bounce", "animate-pulse"]
+
+                        const randomPos =
+                          positions[Math.floor(Math.random() * positions.length)]
+                        const randomAnim =
+                          anims[Math.floor(Math.random() * anims.length)]
+
+                        setCoins((prev) => [
+                          ...prev,
+                          {
+                            ...coin,
+                            x: randomPos,
+                            anim: randomAnim,
+                          },
+                        ])
+                      }, 1200)
+                    }}
+                    className={`absolute ${coin.x} cursor-pointer text-2xl ${coin.anim} hover:scale-125`}
+                  >
+                    {coin.icon}
+                  </div>
+                ))}
+
+                <div className="absolute bottom-4 left-4 rounded-xl bg-white/80 px-3 py-2 text-sm text-black shadow">
+                  <div className="mb-2 text-sm font-semibold text-black">
+                    💰 Dinero recuperado: {money}€
+                  </div>
+                  Excusa típica: “te lo paso luego”
+                </div>
+
+                <div className="absolute right-4 top-4 rounded-xl bg-white/80 px-3 py-2 text-sm text-black shadow">
+                  Deuda detectada
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {screen === "amigos" && (
+          <div className="mx-auto flex max-w-3xl animate-[fadeIn_.35s_ease] flex-col gap-6">
+            <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
+              <h2 className="text-2xl font-semibold text-black">Amigos</h2>
+              <p className="mt-1 text-sm text-gray-500">
+                Aquí ves el balance global contigo y cada amigo, sumando gastos de grupos y gastos directos.
+              </p>
+
+              <div className="mt-4 space-y-3">
                 {friendList.length === 0 ? (
                   <p className="text-gray-500">
-                    Aquí aparecerán tus amigos cuando compartáis grupos o gastos.
+                    Todavía no tienes balances con amigos.
                   </p>
                 ) : (
                   friendList.map((friend) => (
                     <div
                       key={friend.id}
-                      className="rounded-lg border border-gray-200 p-3"
+                      className="rounded-xl border border-gray-200 p-4"
                     >
-                      <div className="flex items-center justify-between gap-3">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                         <div>
-                          <p className="font-semibold text-black">{friend.name}</p>
-                          <p className="text-sm text-gray-500">
+                          <p className="text-lg font-semibold text-black">{friend.name}</p>
+                          <p className="text-sm text-gray-600">
                             {getFriendBalanceText(friend.id)}
                           </p>
                         </div>
 
                         <button
                           onClick={() => openFriendExpense(friend.id)}
-                          className="rounded-lg bg-black px-3 py-2 text-white transition-all hover:scale-105 active:scale-95"
+                          className="rounded-xl bg-black px-4 py-3 text-white transition-all hover:scale-105 active:scale-95"
                         >
-                          Gasto directo
+                          Añadir gasto directo
                         </button>
                       </div>
                     </div>
@@ -1207,387 +1435,193 @@ if (existingUser) {
               </div>
             </div>
           </div>
+        )}
 
-          <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
-            <div className="mb-3 flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-bold text-black">Caza al moroso</h3>
-                <p className="text-sm text-gray-500">
-                  Dale al botón antes de que escape con tu dinero.
-                </p>
-              </div>
-            </div>
+        {screen === "gastos" && (
+          <div className="mx-auto flex max-w-3xl animate-[fadeIn_.35s_ease] flex-col gap-6">
+            <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
+              <h2 className="mb-2 text-xl font-semibold text-black">Añadir gasto</h2>
 
-            <div className="relative h-56 overflow-hidden rounded-2xl bg-gradient-to-br from-green-50 to-red-50">
-              <button
-                onMouseEnter={(e) => {
-                  const parent = e.currentTarget.parentElement
-                  if (!parent) return
-
-                  const maxX = parent.clientWidth - e.currentTarget.clientWidth
-                  const maxY = parent.clientHeight - e.currentTarget.clientHeight
-
-                  const randomX = Math.floor(Math.random() * maxX)
-                  const randomY = Math.floor(Math.random() * maxY)
-
-                  e.currentTarget.style.left = `${randomX}px`
-                  e.currentTarget.style.top = `${randomY}px`
-                }}
-                onClick={() => alert("Lo pillaste. Hoy sí te pagan.")}
-                className="absolute left-6 top-6 rounded-full bg-black px-4 py-2 text-white transition-all duration-300 animate-bounce hover:scale-110"
-              >
-                💸 Moroso
-              </button>
-
-              {coins.map((coin) => (
-                <div
-                  key={coin.id}
+              <div className="mt-3 flex gap-2">
+                <button
                   onClick={() => {
-                    setMoney((m) => m + coin.value)
-
-                    setCoins((prev) => prev.filter((c) => c.id !== coin.id))
-
-                    setTimeout(() => {
-                      const positions = [
-                        "left-6 top-5",
-                        "right-10 top-10",
-                        "left-1/3 bottom-6",
-                        "right-1/4 bottom-10",
-                        "left-1/2 top-8",
-                        "right-6 bottom-6",
-                        "left-10 bottom-10",
-                      ]
-
-                      const anims = ["animate-bounce", "animate-pulse"]
-
-                      const randomPos =
-                        positions[Math.floor(Math.random() * positions.length)]
-                      const randomAnim =
-                        anims[Math.floor(Math.random() * anims.length)]
-
-                      setCoins((prev) => [
-                        ...prev,
-                        {
-                          ...coin,
-                          x: randomPos,
-                          anim: randomAnim,
-                        },
-                      ])
-                    }, 1200)
+                    setExpenseMode("group")
+                    setSelectedFriendId("")
                   }}
-                  className={`absolute ${coin.x} cursor-pointer text-2xl ${coin.anim} hover:scale-125`}
+                  className={`rounded-xl px-4 py-2 text-white transition-all ${
+                    expenseMode === "group" ? "bg-black" : "bg-gray-500"
+                  }`}
                 >
-                  {coin.icon}
-                </div>
-              ))}
+                  Gasto de grupo
+                </button>
 
-              <div className="absolute bottom-4 left-4 rounded-xl bg-white/80 px-3 py-2 text-sm text-black shadow">
-                <div className="mb-2 text-sm font-semibold text-black">
-                  💰 Dinero recuperado: {money}€
-                </div>
-                Excusa típica: “te lo paso luego”
+                <button
+                  onClick={() => {
+                    setExpenseMode("friend")
+                    setExpenseGroupId("")
+                  }}
+                  className={`rounded-xl px-4 py-2 text-white transition-all ${
+                    expenseMode === "friend" ? "bg-black" : "bg-gray-500"
+                  }`}
+                >
+                  Gasto con amigo
+                </button>
               </div>
 
-              <div className="absolute right-4 top-4 rounded-xl bg-white/80 px-3 py-2 text-sm text-black shadow">
-                Deuda detectada
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {screen === "amigos" && (
-        <div className="mx-auto flex max-w-3xl animate-[fadeIn_.35s_ease] flex-col gap-6">
-          <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
-            <h2 className="text-2xl font-semibold text-black">Amigos</h2>
-            <p className="mt-1 text-sm text-gray-500">
-              Aquí ves el balance global contigo y cada amigo, sumando gastos de grupos y gastos directos.
-            </p>
-
-            <div className="mt-4 space-y-3">
-              {friendList.length === 0 ? (
-                <p className="text-gray-500">
-                  Todavía no tienes balances con amigos.
-                </p>
-              ) : (
-                friendList.map((friend) => (
-                  <div
-                    key={friend.id}
-                    className="rounded-xl border border-gray-200 p-4"
-                  >
-                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                      <div>
-                        <p className="text-lg font-semibold text-black">{friend.name}</p>
-                        <p className="text-sm text-gray-600">
-                          {getFriendBalanceText(friend.id)}
-                        </p>
-                      </div>
-
-                      <button
-                        onClick={() => openFriendExpense(friend.id)}
-                        className="rounded-xl bg-black px-4 py-3 text-white transition-all hover:scale-105 active:scale-95"
-                      >
-                        Añadir gasto directo
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {screen === "gastos" && (
-        <div className="mx-auto flex max-w-3xl animate-[fadeIn_.35s_ease] flex-col gap-6">
-          <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
-            <h2 className="mb-2 text-xl font-semibold text-black">Añadir gasto</h2>
-
-            <div className="mt-3 flex gap-2">
-              <button
-                onClick={() => {
-                  setExpenseMode("group")
-                  setSelectedFriendId("")
-                }}
-                className={`rounded-xl px-4 py-2 text-white transition-all ${
-                  expenseMode === "group" ? "bg-black" : "bg-gray-500"
-                }`}
-              >
-                Gasto de grupo
-              </button>
-
-              <button
-                onClick={() => {
-                  setExpenseMode("friend")
-                  setExpenseGroupId("")
-                }}
-                className={`rounded-xl px-4 py-2 text-white transition-all ${
-                  expenseMode === "friend" ? "bg-black" : "bg-gray-500"
-                }`}
-              >
-                Gasto con amigo
-              </button>
-            </div>
-
-            <input
-              placeholder="Concepto (ej: cena)"
-              value={expenseTitle}
-              onChange={(e) => setExpenseTitle(e.target.value)}
-              className="mt-3 w-full rounded-lg border border-gray-300 p-3 text-black outline-none transition focus:border-black focus:ring-1 focus:ring-black"
-            />
-
-            <input
-              type="number"
-              placeholder="Cantidad total"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              className="mt-3 w-full rounded-lg border border-gray-300 p-3 text-black outline-none transition focus:border-black focus:ring-1 focus:ring-black"
-            />
-
-            {expenseMode === "group" ? (
-              <select
-                value={expenseGroupId}
-                onChange={(e) => {
-                  setExpenseGroupId(e.target.value)
-                  setPaidBy("")
-                  setCustomSplits({})
-                }}
+              <input
+                placeholder="Concepto (ej: cena)"
+                value={expenseTitle}
+                onChange={(e) => setExpenseTitle(e.target.value)}
                 className="mt-3 w-full rounded-lg border border-gray-300 p-3 text-black outline-none transition focus:border-black focus:ring-1 focus:ring-black"
-              >
-                <option value="">Grupo</option>
-                {groups.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.name}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <select
-                value={selectedFriendId}
-                onChange={(e) => {
-                  setSelectedFriendId(e.target.value)
-                  setPaidBy(currentAppUser?.id || "")
-                  setCustomSplits({})
-                }}
+              />
+
+              <input
+                type="number"
+                placeholder="Cantidad total"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
                 className="mt-3 w-full rounded-lg border border-gray-300 p-3 text-black outline-none transition focus:border-black focus:ring-1 focus:ring-black"
-              >
-                <option value="">Amigo</option>
-                {friendList.map((friend) => (
-                  <option key={friend.id} value={friend.id}>
-                    {friend.name}
-                  </option>
-                ))}
-              </select>
-            )}
+              />
 
-            <select
-              value={paidBy}
-              onChange={(e) => setPaidBy(e.target.value)}
-              disabled={expenseParticipants.length === 0}
-              className="mt-3 w-full rounded-lg border border-gray-300 p-3 text-black outline-none transition focus:border-black focus:ring-1 focus:ring-black disabled:bg-gray-100 disabled:text-gray-400"
-            >
-              <option value="">
-                {expenseParticipants.length === 0
-                  ? expenseMode === "group"
-                    ? "Ese grupo no tiene personas"
-                    : "Primero elige amigo"
-                  : "Quién paga"}
-              </option>
-
-              {expenseParticipants.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name}
-                </option>
-              ))}
-            </select>
-
-            <div className="mt-3 flex gap-2">
-              <button
-                onClick={() => setSplitMode("equal")}
-                className={`rounded-xl px-3 py-2 text-white ${
-                  splitMode === "equal" ? "bg-black" : "bg-gray-500"
-                }`}
-              >
-                Equitativa
-              </button>
-
-              <button
-                onClick={() => setSplitMode("custom")}
-                className={`rounded-xl px-3 py-2 text-white ${
-                  splitMode === "custom" ? "bg-black" : "bg-gray-500"
-                }`}
-              >
-                Personalizada
-              </button>
-            </div>
-
-            {splitMode === "custom" && expenseParticipants.length > 0 && (
-              <div className="mt-3 rounded-xl border p-3">
-                <h3 className="font-semibold text-black">Importe por persona</h3>
-
-                <div className="mt-2 flex flex-col gap-2">
-                  {expenseParticipants.map((member) => (
-                    <div key={member.id} className="flex flex-col gap-1">
-                      <label className="text-sm text-black">{member.name}</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        placeholder="0"
-                        value={customSplits[member.id] || ""}
-                        onChange={(e) =>
-                          handleCustomSplitChange(member.id, e.target.value)
-                        }
-                        className="rounded-lg border border-gray-300 p-3 text-black outline-none transition focus:border-black focus:ring-1 focus:ring-black"
-                      />
-                    </div>
+              {expenseMode === "group" ? (
+                <select
+                  value={expenseGroupId}
+                  onChange={(e) => {
+                    setExpenseGroupId(e.target.value)
+                    setPaidBy("")
+                    setCustomSplits({})
+                  }}
+                  className="mt-3 w-full rounded-lg border border-gray-300 p-3 text-black outline-none transition focus:border-black focus:ring-1 focus:ring-black"
+                >
+                  <option value="">Grupo</option>
+                  {groups.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name}
+                    </option>
                   ))}
-                </div>
-              </div>
-            )}
-
-            <button
-              onClick={addExpense}
-              className="mt-4 w-full rounded-xl bg-red-600 p-3 text-white transition-all hover:scale-105 active:scale-95"
-            >
-              Añadir gasto
-            </button>
-          </div>
-
-          <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
-            <h2 className="text-xl font-semibold text-black">Miembros por grupo</h2>
-
-            <div className="mt-3 flex flex-col gap-4">
-              {groupsWithMembers.length === 0 ? (
-                <p className="text-gray-500">No hay grupos todavía</p>
+                </select>
               ) : (
-                groupsWithMembers.map((group) => (
-                  <div key={group.id} className="rounded border p-3">
-                    <button
-                      onClick={() => toggleMemberGroup(group.id)}
-                      className="flex w-full items-center justify-between text-left"
-                    >
-                      <h3 className="font-bold text-black">{group.name}</h3>
-                      <span className="text-black">
-                        {openMemberGroups[group.id] ? "▲" : "▼"}
-                      </span>
-                    </button>
-
-                    {openMemberGroups[group.id] && (
-                      <div className="mt-2">
-                        {group.members.length === 0 ? (
-                          <p className="text-sm text-gray-500">
-                            Todavía no hay personas en este grupo
-                          </p>
-                        ) : (
-                          <ul className="flex flex-col gap-1">
-                            {group.members.map((member) => (
-                              <li key={member.id} className="text-black">
-                                - {member.name}
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))
+                <select
+                  value={selectedFriendId}
+                  onChange={(e) => {
+                    setSelectedFriendId(e.target.value)
+                    setPaidBy(currentAppUser?.id || "")
+                    setCustomSplits({})
+                  }}
+                  className="mt-3 w-full rounded-lg border border-gray-300 p-3 text-black outline-none transition focus:border-black focus:ring-1 focus:ring-black"
+                >
+                  <option value="">Amigo</option>
+                  {friendList.map((friend) => (
+                    <option key={friend.id} value={friend.id}>
+                      {friend.name}
+                    </option>
+                  ))}
+                </select>
               )}
+
+              <select
+                value={paidBy}
+                onChange={(e) => setPaidBy(e.target.value)}
+                disabled={expenseParticipants.length === 0}
+                className="mt-3 w-full rounded-lg border border-gray-300 p-3 text-black outline-none transition focus:border-black focus:ring-1 focus:ring-black disabled:bg-gray-100 disabled:text-gray-400"
+              >
+                <option value="">
+                  {expenseParticipants.length === 0
+                    ? expenseMode === "group"
+                      ? "Ese grupo no tiene personas"
+                      : "Primero elige amigo"
+                    : "Quién paga"}
+                </option>
+
+                {expenseParticipants.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name}
+                  </option>
+                ))}
+              </select>
+
+              <div className="mt-3 flex gap-2">
+                <button
+                  onClick={() => setSplitMode("equal")}
+                  className={`rounded-xl px-3 py-2 text-white ${
+                    splitMode === "equal" ? "bg-black" : "bg-gray-500"
+                  }`}
+                >
+                  Equitativa
+                </button>
+
+                <button
+                  onClick={() => setSplitMode("custom")}
+                  className={`rounded-xl px-3 py-2 text-white ${
+                    splitMode === "custom" ? "bg-black" : "bg-gray-500"
+                  }`}
+                >
+                  Personalizada
+                </button>
+              </div>
+
+              {splitMode === "custom" && expenseParticipants.length > 0 && (
+                <div className="mt-3 rounded-xl border p-3">
+                  <h3 className="font-semibold text-black">Importe por persona</h3>
+
+                  <div className="mt-2 flex flex-col gap-2">
+                    {expenseParticipants.map((member) => (
+                      <div key={member.id} className="flex flex-col gap-1">
+                        <label className="text-sm text-black">{member.name}</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="0"
+                          value={customSplits[member.id] || ""}
+                          onChange={(e) =>
+                            handleCustomSplitChange(member.id, e.target.value)
+                          }
+                          className="rounded-lg border border-gray-300 p-3 text-black outline-none transition focus:border-black focus:ring-1 focus:ring-black"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <button
+                onClick={addExpense}
+                className="mt-4 w-full rounded-xl bg-red-600 p-3 text-white transition-all hover:scale-105 active:scale-95"
+              >
+                Añadir gasto
+              </button>
             </div>
-          </div>
-        </div>
-      )}
 
-      {screen === "balances" && (
-        <div className="mx-auto flex max-w-3xl animate-[fadeIn_.35s_ease] flex-col gap-6">
-          <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
-            <h2 className="text-xl font-semibold text-black">Balances por grupo</h2>
-            <p className="mt-1 text-sm text-gray-500">
-              Aquí solo cuentan los gastos de ese grupo, no el balance total global con esa persona.
-            </p>
+            <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
+              <h2 className="text-xl font-semibold text-black">Miembros por grupo</h2>
 
-            <div className="mt-3 flex flex-col gap-4">
-              {groups.length === 0 ? (
-                <p className="text-gray-500">No hay grupos todavía</p>
-              ) : (
-                groups.map((group) => {
-                  const balances = balancesByGroup[group.id] || []
-
-                  return (
+              <div className="mt-3 flex flex-col gap-4">
+                {groupsWithMembers.length === 0 ? (
+                  <p className="text-gray-500">No hay grupos todavía</p>
+                ) : (
+                  groupsWithMembers.map((group) => (
                     <div key={group.id} className="rounded border p-3">
                       <button
-                        onClick={() => toggleBalanceGroup(group.id)}
+                        onClick={() => toggleMemberGroup(group.id)}
                         className="flex w-full items-center justify-between text-left"
                       >
                         <h3 className="font-bold text-black">{group.name}</h3>
                         <span className="text-black">
-                          {openBalanceGroups[group.id] ? "▲" : "▼"}
+                          {openMemberGroups[group.id] ? "▲" : "▼"}
                         </span>
                       </button>
 
-                      {openBalanceGroups[group.id] && (
+                      {openMemberGroups[group.id] && (
                         <div className="mt-2">
-                          {balances.length === 0 ? (
+                          {group.members.length === 0 ? (
                             <p className="text-sm text-gray-500">
-                              No hay deudas en este grupo
+                              Todavía no hay personas en este grupo
                             </p>
                           ) : (
-                            <ul className="flex flex-col gap-3">
-                              {balances.map((item, index) => (
-                                <li
-                                  key={index}
-                                  className="flex flex-col gap-2 rounded border p-2 text-black"
-                                >
-                                  <span>
-                                    {getUserName(item.debtorId)} debe {item.amount.toFixed(2)}€ a{" "}
-                                    {getUserName(item.creditorId)}
-                                  </span>
-
-                                  <button
-                                    onClick={() => settleBalance(item)}
-                                    className="rounded bg-black px-3 py-2 text-white transition-all hover:scale-105 active:scale-95"
-                                  >
-                                    Saldar deuda
-                                  </button>
+                            <ul className="flex flex-col gap-1">
+                              {group.members.map((member) => (
+                                <li key={member.id} className="text-black">
+                                  - {member.name}
                                 </li>
                               ))}
                             </ul>
@@ -1595,157 +1629,223 @@ if (existingUser) {
                         </div>
                       )}
                     </div>
-                  )
-                })
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {screen === "balances" && (
+          <div className="mx-auto flex max-w-3xl animate-[fadeIn_.35s_ease] flex-col gap-6">
+            <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
+              <h2 className="text-xl font-semibold text-black">Balances por grupo</h2>
+              <p className="mt-1 text-sm text-gray-500">
+                Aquí solo cuentan los gastos de ese grupo, no el balance total global con esa persona.
+              </p>
+
+              <div className="mt-3 flex flex-col gap-4">
+                {groups.length === 0 ? (
+                  <p className="text-gray-500">No hay grupos todavía</p>
+                ) : (
+                  groups.map((group) => {
+                    const balances = balancesByGroup[group.id] || []
+
+                    return (
+                      <div key={group.id} className="rounded border p-3">
+                        <button
+                          onClick={() => toggleBalanceGroup(group.id)}
+                          className="flex w-full items-center justify-between text-left"
+                        >
+                          <h3 className="font-bold text-black">{group.name}</h3>
+                          <span className="text-black">
+                            {openBalanceGroups[group.id] ? "▲" : "▼"}
+                          </span>
+                        </button>
+
+                        {openBalanceGroups[group.id] && (
+                          <div className="mt-2">
+                            {balances.length === 0 ? (
+                              <p className="text-sm text-gray-500">
+                                No hay deudas en este grupo
+                              </p>
+                            ) : (
+                              <ul className="flex flex-col gap-3">
+                                {balances.map((item, index) => (
+                                  <li
+                                    key={index}
+                                    className="flex flex-col gap-2 rounded border p-2 text-black"
+                                  >
+                                    <span>
+                                      {getUserName(item.debtorId)} debe {item.amount.toFixed(2)}€ a{" "}
+                                      {getUserName(item.creditorId)}
+                                    </span>
+
+                                    <button
+                                      onClick={() => settleBalance(item)}
+                                      className="rounded bg-black px-3 py-2 text-white transition-all hover:scale-105 active:scale-95"
+                                    >
+                                      Saldar deuda
+                                    </button>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {screen === "historial" && (
+          <div className="mx-auto flex max-w-3xl animate-[fadeIn_.35s_ease] flex-col gap-6">
+            <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
+              <button
+                onClick={() => setShowExpenseHistory((prev) => !prev)}
+                className="flex w-full items-center justify-between text-left"
+              >
+                <h2 className="text-xl font-semibold text-black">Historial de gastos</h2>
+                <span className="text-black">{showExpenseHistory ? "▲" : "▼"}</span>
+              </button>
+
+              {showExpenseHistory && (
+                <div className="mt-3">
+                  {normalExpenses.length === 0 ? (
+                    <p className="text-gray-500">Todavía no hay gastos normales</p>
+                  ) : (
+                    <ul className="flex flex-col gap-3">
+                      {normalExpenses.map((e) => (
+                        <li key={e.id} className="rounded-xl border bg-gray-50 p-4 shadow-sm">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-semibold text-black">{e.title}</p>
+                              <p className="mt-1 text-sm text-gray-700">
+                                {e.amount}€ · {getGroupName(e.group_id)}
+                              </p>
+                              <p className="text-sm text-gray-700">
+                                Pagó: {getUserName(e.paid_by)}
+                              </p>
+                              <p className="mt-2 text-xs text-gray-500">
+                                {formatDate(e.created_at)}
+                              </p>
+                            </div>
+
+                            <div className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-black shadow-sm">
+                              {e.group_id ? "Grupo" : "Individual"}
+                            </div>
+                          </div>
+
+                          <div className="mt-3 rounded-lg bg-white p-3">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                              Reparto
+                            </p>
+                            <p className="mt-1 text-sm text-black">
+                              {getExpensePeopleSummary(e.id)}
+                            </p>
+                          </div>
+
+                          {isAdmin && (
+                            <button
+                              onClick={() => deleteExpense(e.id)}
+                              className="mt-3 rounded bg-black px-3 py-2 text-white transition-all hover:scale-105 active:scale-95"
+                            >
+                              Borrar gasto
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
+              <button
+                onClick={() => setShowSettledHistory((prev) => !prev)}
+                className="flex w-full items-center justify-between text-left"
+              >
+                <h2 className="text-xl font-semibold text-black">
+                  Historial de deudas saldadas
+                </h2>
+                <span className="text-black">{showSettledHistory ? "▲" : "▼"}</span>
+              </button>
+
+              {showSettledHistory && (
+                <div className="mt-3">
+                  {settledExpenses.length === 0 ? (
+                    <p className="text-gray-500">Todavía no hay deudas saldadas</p>
+                  ) : (
+                    <ul className="flex flex-col gap-3">
+                      {settledExpenses.map((e) => (
+                        <li key={e.id} className="rounded-xl border bg-green-50 p-4 shadow-sm">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-semibold text-black">Saldar deuda</p>
+                              <p className="mt-1 text-sm text-gray-700">
+                                {e.amount}€ · {getGroupName(e.group_id)}
+                              </p>
+                              <p className="text-sm text-gray-700">
+                                Pagó: {getUserName(e.paid_by)}
+                              </p>
+                              <p className="mt-2 text-xs text-gray-500">
+                                {formatDate(e.created_at)}
+                              </p>
+                            </div>
+
+                            <div className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-green-700 shadow-sm">
+                              Saldado
+                            </div>
+                          </div>
+
+                          <div className="mt-3 rounded-lg bg-white p-3">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                              Movimiento
+                            </p>
+                            <p className="mt-1 text-sm text-black">
+                              {getExpensePeopleSummary(e.id)}
+                            </p>
+                          </div>
+
+                          {isAdmin && (
+                            <button
+                              onClick={() => deleteExpense(e.id)}
+                              className="mt-3 rounded bg-black px-3 py-2 text-white transition-all hover:scale-105 active:scale-95"
+                            >
+                              Borrar registro
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               )}
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {screen === "historial" && (
-        <div className="mx-auto flex max-w-3xl animate-[fadeIn_.35s_ease] flex-col gap-6">
-          <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
-            <button
-              onClick={() => setShowExpenseHistory((prev) => !prev)}
-              className="flex w-full items-center justify-between text-left"
-            >
-              <h2 className="text-xl font-semibold text-black">Historial de gastos</h2>
-              <span className="text-black">{showExpenseHistory ? "▲" : "▼"}</span>
-            </button>
+        {screen === "moroso" && (
+          <div className="mx-auto flex max-w-3xl animate-[fadeIn_.35s_ease] flex-col gap-6">
+            <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
+              <h2 className="mb-3 text-xl font-semibold text-black">Moroso del mes</h2>
 
-            {showExpenseHistory && (
-              <div className="mt-3">
-                {normalExpenses.length === 0 ? (
-                  <p className="text-gray-500">Todavía no hay gastos normales</p>
-                ) : (
-                  <ul className="flex flex-col gap-3">
-                    {normalExpenses.map((e) => (
-                      <li key={e.id} className="rounded-xl border bg-gray-50 p-4 shadow-sm">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="font-semibold text-black">{e.title}</p>
-                            <p className="mt-1 text-sm text-gray-700">
-                              {e.amount}€ · {getGroupName(e.group_id)}
-                            </p>
-                            <p className="text-sm text-gray-700">
-                              Pagó: {getUserName(e.paid_by)}
-                            </p>
-                            <p className="mt-2 text-xs text-gray-500">
-                              {formatDate(e.created_at)}
-                            </p>
-                          </div>
-
-                          <div className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-black shadow-sm">
-                            {e.group_id ? "Grupo" : "Individual"}
-                          </div>
-                        </div>
-
-                        <div className="mt-3 rounded-lg bg-white p-3">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                            Reparto
-                          </p>
-                          <p className="mt-1 text-sm text-black">
-                            {getExpensePeopleSummary(e.id)}
-                          </p>
-                        </div>
-
-                        {isAdmin && (
-                          <button
-                            onClick={() => deleteExpense(e.id)}
-                            className="mt-3 rounded bg-black px-3 py-2 text-white transition-all hover:scale-105 active:scale-95"
-                          >
-                            Borrar gasto
-                          </button>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
+              {!moroso ? (
+                <p className="text-green-600">No hay deudas</p>
+              ) : (
+                <p className="text-black">
+                  {getUserName(moroso.userId)} debe {moroso.amount.toFixed(2)}€
+                </p>
+              )}
+            </div>
           </div>
-
-          <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
-            <button
-              onClick={() => setShowSettledHistory((prev) => !prev)}
-              className="flex w-full items-center justify-between text-left"
-            >
-              <h2 className="text-xl font-semibold text-black">
-                Historial de deudas saldadas
-              </h2>
-              <span className="text-black">{showSettledHistory ? "▲" : "▼"}</span>
-            </button>
-
-            {showSettledHistory && (
-              <div className="mt-3">
-                {settledExpenses.length === 0 ? (
-                  <p className="text-gray-500">Todavía no hay deudas saldadas</p>
-                ) : (
-                  <ul className="flex flex-col gap-3">
-                    {settledExpenses.map((e) => (
-                      <li key={e.id} className="rounded-xl border bg-green-50 p-4 shadow-sm">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="font-semibold text-black">Saldar deuda</p>
-                            <p className="mt-1 text-sm text-gray-700">
-                              {e.amount}€ · {getGroupName(e.group_id)}
-                            </p>
-                            <p className="text-sm text-gray-700">
-                              Pagó: {getUserName(e.paid_by)}
-                            </p>
-                            <p className="mt-2 text-xs text-gray-500">
-                              {formatDate(e.created_at)}
-                            </p>
-                          </div>
-
-                          <div className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-green-700 shadow-sm">
-                            Saldado
-                          </div>
-                        </div>
-
-                        <div className="mt-3 rounded-lg bg-white p-3">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                            Movimiento
-                          </p>
-                          <p className="mt-1 text-sm text-black">
-                            {getExpensePeopleSummary(e.id)}
-                          </p>
-                        </div>
-
-                        {isAdmin && (
-                          <button
-                            onClick={() => deleteExpense(e.id)}
-                            className="mt-3 rounded bg-black px-3 py-2 text-white transition-all hover:scale-105 active:scale-95"
-                          >
-                            Borrar registro
-                          </button>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {screen === "moroso" && (
-        <div className="mx-auto flex max-w-3xl animate-[fadeIn_.35s_ease] flex-col gap-6">
-          <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
-            <h2 className="mb-3 text-xl font-semibold text-black">Moroso del mes</h2>
-
-            {!moroso ? (
-              <p className="text-green-600">No hay deudas</p>
-            ) : (
-              <p className="text-black">
-                {getUserName(moroso.userId)} debe {moroso.amount.toFixed(2)}€
-              </p>
-            )}
-          </div>
-        </div>
-      )}
+        )}
+      </div>
     </main>
   )
 }
